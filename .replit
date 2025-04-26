@@ -1,0 +1,28 @@
+modules = ["java", "java-17"]
+
+[nix]
+channel = "stable-24_05"
+packages = ["openjdk17"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Java Dungeon Crawler"
+
+[[workflows.workflow]]
+name = "Java Dungeon Crawler"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "./compile_and_run.sh"
+
+[deployment]
+run = ["sh", "-c", "cd src && javac game/MagicalLabyrinth.java && java game.MagicalLabyrinth"]
