@@ -11,7 +11,7 @@ import game.view.SwingView;
  * Main class that starts the Magical Labyrinth game.
  */
 public class MagicalLabyrinth {
-    private static final boolean USE_SWING = true; // Set to true to use Swing UI, false for console
+    private static final boolean USE_SWING = false; // Set to false to use console UI on Replit
 
     public static void main(String[] args) {
         System.out.println("Magical Labyrinth: Escape from the Dungeon");
