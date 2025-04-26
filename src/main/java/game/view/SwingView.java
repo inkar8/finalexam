@@ -13,11 +13,12 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.awt.AlphaComposite;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * Swing-based implementation of the game view.
+ * Swing-based implementation of the game view with enhanced graphics.
  */
 public class SwingView implements GameView {
     private Labyrinth labyrinth;
@@ -26,8 +27,19 @@ public class SwingView implements GameView {
     private JTextArea outputArea;
     private JTextField inputField;
     private JPanel mapPanel;
+    private JPanel minimapPanel;
     private JLabel statusLabel;
     private BlockingQueue<String> inputQueue;
+    
+    // Animation properties
+    private Timer animationTimer;
+    private Position previousPlayerPos;
+    private Position currentPlayerPos;
+    private double animationProgress = 1.0; // 0.0 to 1.0
+    private boolean isAnimating = false;
+    
+    // Minimap properties
+    private int minimapScale = 5; // Each room is 5x5 pixels on minimap
     
     /**
      * Creates a new Swing view.
@@ -39,6 +51,22 @@ public class SwingView implements GameView {
         this.labyrinth = labyrinth;
         this.player = player;
         this.inputQueue = new LinkedBlockingQueue<>();
+        this.currentPlayerPos = player.getPosition();
+        this.previousPlayerPos = new Position(currentPlayerPos);
+        
+        // Setup animation timer
+        this.animationTimer = new Timer(16, e -> {
+            if (isAnimating) {
+                animationProgress += 0.1;
+                if (animationProgress >= 1.0) {
+                    animationProgress = 1.0;
+                    isAnimating = false;
+                }
+                mapPanel.repaint();
+            }
+        });
+        animationTimer.setRepeats(true);
+        animationTimer.start();
         
         SwingUtilities.invokeLater(this::createAndShowGUI);
     }
@@ -50,7 +78,7 @@ public class SwingView implements GameView {
         // Create the main frame
         frame = new JFrame("Magical Labyrinth: Escape from the Dungeon");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(900, 700);
+        frame.setSize(1000, 750);  // Slightly larger to accommodate minimap
         frame.setLayout(new BorderLayout(10, 10));
         frame.getContentPane().setBackground(new Color(40, 40, 60)); // Dark blue background
         
@@ -129,7 +157,65 @@ public class SwingView implements GameView {
         addLegendItem(legendPanel, Color.BLACK, "Player");
         
         mapContainer.add(legendPanel, BorderLayout.SOUTH);
-        frame.add(mapContainer, BorderLayout.EAST);
+        
+        // Create minimap panel to display the entire explored area
+        JPanel minimapContainer = new JPanel(new BorderLayout());
+        minimapContainer.setBackground(new Color(40, 40, 60));
+        minimapContainer.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createEmptyBorder(5, 5, 5, 5),
+            BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(new Color(100, 100, 200), 2),
+                "World Map",
+                TitledBorder.CENTER,
+                TitledBorder.TOP,
+                new Font("Dialog", Font.BOLD, 12),
+                new Color(200, 200, 255)
+            )
+        ));
+        
+        minimapPanel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                if (g instanceof Graphics2D) {
+                    Graphics2D g2d = (Graphics2D) g;
+                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                }
+                setBackground(new Color(15, 15, 25));
+                drawMinimap(g);
+            }
+        };
+        minimapPanel.setPreferredSize(new Dimension(300, 150));
+        
+        // Create a minimap legend panel with compact color squares
+        JPanel minimapLegend = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
+        minimapLegend.setBackground(new Color(30, 30, 45));
+        
+        // Add compact color indicators for the minimap
+        JPanel regularColor = createCompactLegendItem(new Color(200, 200, 220), "Regular");
+        JPanel treasureColor = createCompactLegendItem(new Color(255, 215, 0), "Treasure");
+        JPanel monsterColor = createCompactLegendItem(new Color(255, 80, 80), "Monster");
+        JPanel puzzleColor = createCompactLegendItem(new Color(100, 150, 255), "Puzzle");
+        JPanel trapColor = createCompactLegendItem(new Color(255, 150, 0), "Trap");
+        JPanel exitColor = createCompactLegendItem(new Color(100, 255, 100), "Exit");
+        
+        minimapLegend.add(regularColor);
+        minimapLegend.add(treasureColor);
+        minimapLegend.add(monsterColor);
+        minimapLegend.add(puzzleColor);
+        minimapLegend.add(trapColor);
+        minimapLegend.add(exitColor);
+        
+        minimapContainer.add(minimapPanel, BorderLayout.CENTER);
+        minimapContainer.add(minimapLegend, BorderLayout.SOUTH);
+        
+        // Add both map and minimap to a container
+        JPanel mapAndMinimapContainer = new JPanel(new BorderLayout());
+        mapAndMinimapContainer.setBackground(new Color(40, 40, 60));
+        mapAndMinimapContainer.add(mapContainer, BorderLayout.CENTER);
+        mapAndMinimapContainer.add(minimapContainer, BorderLayout.SOUTH);
+        
+        frame.add(mapAndMinimapContainer, BorderLayout.EAST);
         
         // Create styled input panel
         JPanel inputPanel = new JPanel(new BorderLayout(5, 5));
@@ -285,12 +371,59 @@ public class SwingView implements GameView {
      * Updates the UI components.
      */
     private void updateUI() {
-        // Update status label
-        statusLabel.setText(player.getName() + " | HP: " + player.getHealth() + "/" + player.getMaxHealth() + 
-                           " | Level: " + player.getLevel() + " | Position: " + player.getPosition());
+        // Check if player position has changed
+        Position newPos = player.getPosition();
+        if (!newPos.equals(currentPlayerPos) && !isAnimating) {
+            // Start animation
+            previousPlayerPos = new Position(currentPlayerPos);
+            currentPlayerPos = new Position(newPos);
+            animationProgress = 0.0;
+            isAnimating = true;
+        }
         
-        // Repaint map
+        // Update status label with health bar visualization
+        String healthBar = createHealthBar(player.getHealth(), player.getMaxHealth());
+        statusLabel.setText(player.getName() + " | " + healthBar + " " + 
+                           player.getHealth() + "/" + player.getMaxHealth() + 
+                           " | Level: " + player.getLevel() + " | Loc: " + player.getPosition());
+        
+        // Repaint map and minimap
         mapPanel.repaint();
+        if (minimapPanel != null) {
+            minimapPanel.repaint();
+        }
+    }
+    
+    /**
+     * Creates a visual health bar using Unicode block characters
+     * 
+     * @param health Current health
+     * @param maxHealth Maximum health
+     * @return String representation of health bar
+     */
+    private String createHealthBar(int health, int maxHealth) {
+        final int barLength = 10; // Number of segments in health bar
+        int filledSegments = Math.round((float)health / maxHealth * barLength);
+        
+        // Ensure at least one segment if health > 0
+        if (health > 0 && filledSegments == 0) {
+            filledSegments = 1;
+        }
+        
+        StringBuilder bar = new StringBuilder("HP: [");
+        
+        // Add filled segments
+        for (int i = 0; i < filledSegments; i++) {
+            bar.append("█");
+        }
+        
+        // Add empty segments
+        for (int i = filledSegments; i < barLength; i++) {
+            bar.append("░");
+        }
+        
+        bar.append("]");
+        return bar.toString();
     }
     
     /**
@@ -300,9 +433,19 @@ public class SwingView implements GameView {
      */
     private void drawMap(Graphics g) {
         Graphics2D g2d = (Graphics2D) g;
-        Position playerPos = player.getPosition();
-        int playerX = playerPos.getX();
-        int playerY = playerPos.getY();
+        
+        // Get player positions for animation
+        int playerX, playerY;
+        if (isAnimating) {
+            // Calculate interpolated position between previous and current
+            playerX = (int) (previousPlayerPos.getX() * (1.0 - animationProgress) + 
+                             currentPlayerPos.getX() * animationProgress);
+            playerY = (int) (previousPlayerPos.getY() * (1.0 - animationProgress) + 
+                             currentPlayerPos.getY() * animationProgress);
+        } else {
+            playerX = currentPlayerPos.getX();
+            playerY = currentPlayerPos.getY();
+        }
         
         int cellSize = 30; // Larger cells for better visuals
         int mapWidth = mapPanel.getWidth() / cellSize;
@@ -358,10 +501,22 @@ public class SwingView implements GameView {
             }
         }
         
-        // Draw player as animated character
-        int playerDrawX = (playerX - startX) * cellSize;
-        int playerDrawY = (playerY - startY) * cellSize;
-        drawPlayer(g2d, playerDrawX, playerDrawY, cellSize);
+        // Calculate smooth player drawing position
+        double drawPlayerX, drawPlayerY;
+        
+        if (isAnimating) {
+            // Calculate interpolated drawing position
+            drawPlayerX = (previousPlayerPos.getX() - startX) * cellSize * (1.0 - animationProgress) +
+                          (currentPlayerPos.getX() - startX) * cellSize * animationProgress;
+            drawPlayerY = (previousPlayerPos.getY() - startY) * cellSize * (1.0 - animationProgress) +
+                          (currentPlayerPos.getY() - startY) * cellSize * animationProgress;
+        } else {
+            drawPlayerX = (currentPlayerPos.getX() - startX) * cellSize;
+            drawPlayerY = (currentPlayerPos.getY() - startY) * cellSize;
+        }
+        
+        // Draw player with animation
+        drawPlayer(g2d, (int)drawPlayerX, (int)drawPlayerY, cellSize);
     }
     
     /**
@@ -487,65 +642,236 @@ public class SwingView implements GameView {
     }
     
     /**
-     * Draws the player character
+     * Draws the player character with enhanced graphics and animation
      */
     private void drawPlayer(Graphics2D g, int x, int y, int size) {
-        // Draw character with shading
-        int padding = size / 6;
+        // Save the current graphics state
+        Stroke oldStroke = g.getStroke();
+        Paint oldPaint = g.getPaint();
         
-        // Character body - blue circle with gradient
-        GradientPaint gradient = new GradientPaint(
-            x + padding, y + padding, new Color(30, 100, 255),
-            x + size - padding, y + size - padding, new Color(20, 70, 200)
-        );
-        g.setPaint(gradient);
-        g.fillOval(x + padding, y + padding, size - padding*2, size - padding*2);
+        // Calculate animation factor for breathing effect (0.0 to 1.0)
+        double breathFactor = Math.sin(System.currentTimeMillis() / 500.0) * 0.05 + 0.95;
         
-        // Add highlight
-        g.setColor(new Color(255, 255, 255, 120));
-        g.fillOval(x + padding + 2, y + padding + 2, (size - padding*2) / 3, (size - padding*2) / 3);
+        // Movement animation factor
+        double moveFactor = isAnimating ? Math.sin(animationProgress * Math.PI) * 0.1 + 0.9 : 1.0;
         
-        // Add border
-        g.setColor(new Color(10, 40, 120));
-        g.setStroke(new BasicStroke(2));
-        g.drawOval(x + padding, y + padding, size - padding*2, size - padding*2);
+        // Adjusted padding for animation
+        int basePadding = size / 6;
+        int padding = (int)(basePadding * breathFactor);
         
-        // Direction indicator (simple triangle in front of player)
-        int centerX = x + size/2;
-        int centerY = y + size/2;
-        int direction = 0; // 0=N, 1=E, 2=S, 3=W
+        // Character body size (affected by animation)
+        int bodySize = (int)((size - padding * 2) * moveFactor);
         
-        g.setColor(new Color(255, 255, 100));
-        int[] xPoints = new int[3];
-        int[] yPoints = new int[3];
+        // Center point
+        int centerX = x + size / 2;
+        int centerY = y + size / 2;
         
-        if (direction == 0) { // North
-            xPoints[0] = centerX; xPoints[1] = centerX - 4; xPoints[2] = centerX + 4;
-            yPoints[0] = y + padding - 2; yPoints[1] = y + padding + 6; yPoints[2] = y + padding + 6;
-        } else if (direction == 1) { // East
-            xPoints[0] = x + size - padding; xPoints[1] = x + size - padding - 6; xPoints[2] = x + size - padding - 6;
-            yPoints[0] = centerY; yPoints[1] = centerY - 4; yPoints[2] = centerY + 4;
-        } else if (direction == 2) { // South
-            xPoints[0] = centerX; xPoints[1] = centerX - 4; xPoints[2] = centerX + 4;
-            yPoints[0] = y + size - padding; yPoints[1] = y + size - padding - 6; yPoints[2] = y + size - padding - 6;
-        } else { // West
-            xPoints[0] = x + padding; xPoints[1] = x + padding + 6; xPoints[2] = x + padding + 6;
-            yPoints[0] = centerY; yPoints[1] = centerY - 4; yPoints[2] = centerY + 4;
+        // Draw shadow beneath character
+        g.setColor(new Color(0, 0, 0, 70));
+        g.fillOval(centerX - bodySize/2 + 2, centerY - bodySize/2 + 4, bodySize, bodySize / 2);
+        
+        // Determine direction based on movement
+        int direction = 0; // Default: North
+        if (isAnimating) {
+            int dx = currentPlayerPos.getX() - previousPlayerPos.getX();
+            int dy = currentPlayerPos.getY() - previousPlayerPos.getY();
+            
+            if (dx > 0) direction = 1; // East
+            else if (dx < 0) direction = 3; // West
+            else if (dy > 0) direction = 2; // South
+            else direction = 0; // North
         }
         
-        g.fillPolygon(xPoints, yPoints, 3);
+        // Character body - blue hero with gradient and glow effect
+        RadialGradientPaint gradient = new RadialGradientPaint(
+            centerX, centerY, bodySize/2,
+            new float[] {0.0f, 0.7f, 1.0f},
+            new Color[] {
+                new Color(100, 180, 255),
+                new Color(30, 100, 255),
+                new Color(20, 70, 200)
+            }
+        );
+        g.setPaint(gradient);
+        
+        // Draw glowing aura
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.3f));
+        g.fillOval(centerX - bodySize/2 - 3, centerY - bodySize/2 - 3, bodySize + 6, bodySize + 6);
+        g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1.0f));
+        
+        // Draw main body
+        g.fillOval(centerX - bodySize/2, centerY - bodySize/2, bodySize, bodySize);
+        
+        // Add highlight reflection
+        g.setColor(new Color(255, 255, 255, 120));
+        int highlightSize = bodySize / 3;
+        g.fillOval(
+            centerX - bodySize/2 + 4,
+            centerY - bodySize/2 + 4,
+            highlightSize,
+            highlightSize
+        );
+        
+        // Draw animated pulse ring if moving
+        if (isAnimating) {
+            g.setStroke(new BasicStroke(2, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND, 0, 
+                                      new float[]{3, 3}, (float)(System.currentTimeMillis() / 100.0) % 6));
+            g.setColor(new Color(100, 200, 255, (int)(100 * (1.0 - animationProgress))));
+            g.drawOval(centerX - bodySize/2 - 5, centerY - bodySize/2 - 5, bodySize + 10, bodySize + 10);
+        }
+        
+        // Add metallic border
+        g.setStroke(new BasicStroke(2));
+        g.setPaint(new GradientPaint(
+            centerX - bodySize/2, centerY - bodySize/2, new Color(150, 180, 255),
+            centerX + bodySize/2, centerY + bodySize/2, new Color(10, 40, 120)
+        ));
+        g.drawOval(centerX - bodySize/2, centerY - bodySize/2, bodySize, bodySize);
+        
+        // Direction indicator (shaped according to movement direction)
+        int arrowSize = bodySize / 3;
+        g.setColor(new Color(255, 240, 100));
+        
+        // Draw different direction indicators based on facing direction
+        switch(direction) {
+            case 0: // North
+                // Draw up-pointing chevron
+                int[] xNorth = {centerX, centerX - arrowSize/2, centerX + arrowSize/2};
+                int[] yNorth = {centerY - bodySize/2 - 2, centerY - bodySize/2 + arrowSize/2, centerY - bodySize/2 + arrowSize/2};
+                g.fillPolygon(xNorth, yNorth, 3);
+                break;
+                
+            case 1: // East
+                // Draw right-pointing chevron
+                int[] xEast = {centerX + bodySize/2 + 2, centerX + bodySize/2 - arrowSize/2, centerX + bodySize/2 - arrowSize/2};
+                int[] yEast = {centerY, centerY - arrowSize/2, centerY + arrowSize/2};
+                g.fillPolygon(xEast, yEast, 3);
+                break;
+                
+            case 2: // South
+                // Draw down-pointing chevron
+                int[] xSouth = {centerX, centerX - arrowSize/2, centerX + arrowSize/2};
+                int[] ySouth = {centerY + bodySize/2 + 2, centerY + bodySize/2 - arrowSize/2, centerY + bodySize/2 - arrowSize/2};
+                g.fillPolygon(xSouth, ySouth, 3);
+                break;
+                
+            case 3: // West
+                // Draw left-pointing chevron
+                int[] xWest = {centerX - bodySize/2 - 2, centerX - bodySize/2 + arrowSize/2, centerX - bodySize/2 + arrowSize/2};
+                int[] yWest = {centerY, centerY - arrowSize/2, centerY + arrowSize/2};
+                g.fillPolygon(xWest, yWest, 3);
+                break;
+        }
+        
+        // Add small eyes to character (giving it a face)
+        int eyeOffset = bodySize / 8;
+        int eyeSize = bodySize / 10;
+        
+        // Adjust eye position based on direction
+        int leftEyeX = centerX - eyeOffset;
+        int rightEyeX = centerX + eyeOffset;
+        int eyeY = centerY - eyeOffset/2;
+        
+        // Draw eyes
+        g.setColor(new Color(220, 240, 255));
+        g.fillOval(leftEyeX - eyeSize/2, eyeY - eyeSize/2, eyeSize, eyeSize);
+        g.fillOval(rightEyeX - eyeSize/2, eyeY - eyeSize/2, eyeSize, eyeSize);
+        
+        // Restore original graphics state
+        g.setStroke(oldStroke);
+        g.setPaint(oldPaint);
     }
     
     @Override
     public void displayMessage(String message) {
+        // Check for special message types to apply formatting
+        String styledMessage = message;
+        
+        // Apply special styling for different message types
+        if (message.contains("MONSTER") || message.contains("attacked") || message.contains("damage")) {
+            // Combat messages in bold red
+            styledMessage = "❗ " + message + " ❗";
+        } else if (message.contains("TREASURE") || message.contains("gold") || message.contains("found")) {
+            // Treasure messages with stars
+            styledMessage = "✨ " + message + " ✨";
+        } else if (message.contains("PUZZLE") || message.contains("riddle")) {
+            // Puzzle messages with question marks
+            styledMessage = "❓ " + message + " ❓";
+        } else if (message.contains("TRAP") || message.contains("triggered")) {
+            // Trap messages with warning symbol
+            styledMessage = "⚠️ " + message + " ⚠️";
+        } else if (message.contains("EXIT") || message.contains("escape")) {
+            // Exit messages with door symbol
+            styledMessage = "🚪 " + message + " 🚪";
+        } else if (message.contains("healed") || message.contains("level up")) {
+            // Healing/level up messages with plus symbol
+            styledMessage = "➕ " + message + " ➕";
+        }
+        
+        // Flash effect for important messages
+        final String finalMessage = styledMessage + "\n";
+        
         if (SwingUtilities.isEventDispatchThread()) {
-            outputArea.append(message + "\n");
-            outputArea.setCaretPosition(outputArea.getDocument().getLength());
+            addMessageWithEffect(finalMessage);
         } else {
-            SwingUtilities.invokeLater(() -> {
-                outputArea.append(message + "\n");
-                outputArea.setCaretPosition(outputArea.getDocument().getLength());
+            SwingUtilities.invokeLater(() -> addMessageWithEffect(finalMessage));
+        }
+    }
+    
+    /**
+     * Adds a message to the output area with visual effects for important messages
+     */
+    private void addMessageWithEffect(String message) {
+        // Check if this is an important message that should trigger visual effect
+        boolean isImportant = message.contains("❗") || message.contains("✨") || 
+                              message.contains("❓") || message.contains("⚠️") ||
+                              message.contains("🚪") || message.contains("➕");
+        
+        // Add the message to the output area
+        outputArea.append(message);
+        outputArea.setCaretPosition(outputArea.getDocument().getLength());
+        
+        // Create a visual flash effect for important messages
+        if (isImportant && mapPanel != null) {
+            Color originalColor = outputArea.getBackground();
+            
+            // Determine flash color based on message type
+            Color flashColor;
+            if (message.contains("❗")) {
+                flashColor = new Color(255, 100, 100); // Red for combat
+            } else if (message.contains("✨")) {
+                flashColor = new Color(255, 215, 0);   // Gold for treasure
+            } else if (message.contains("❓")) {
+                flashColor = new Color(100, 150, 255); // Blue for puzzles
+            } else if (message.contains("⚠️")) {
+                flashColor = new Color(255, 150, 0);   // Orange for traps
+            } else if (message.contains("🚪")) {
+                flashColor = new Color(100, 255, 100); // Green for exit
+            } else {
+                flashColor = new Color(200, 200, 255); // Default light blue
+            }
+            
+            // Create flash effect timer
+            Timer flashTimer = new Timer(100, null);
+            final int[] flashCount = {0};
+            
+            flashTimer.addActionListener(e -> {
+                if (flashCount[0] % 2 == 0) {
+                    // Flash on
+                    outputArea.setBackground(flashColor);
+                } else {
+                    // Flash off
+                    outputArea.setBackground(originalColor);
+                }
+                
+                flashCount[0]++;
+                if (flashCount[0] >= 6) { // 3 flashes (on-off cycles)
+                    flashTimer.stop();
+                    outputArea.setBackground(originalColor);
+                }
             });
+            
+            flashTimer.start();
         }
     }
     
@@ -559,6 +885,169 @@ public class SwingView implements GameView {
             Thread.currentThread().interrupt();
             return "";
         }
+    }
+    
+    /**
+     * Draws the minimap showing the entire explored dungeon
+     */
+    private void drawMinimap(Graphics g) {
+        Graphics2D g2d = (Graphics2D) g;
+        
+        // Get player position
+        Position playerPos = player.getPosition();
+        
+        // Calculate the minimap scale for the entire labyrinth
+        int panelWidth = minimapPanel.getWidth();
+        int panelHeight = minimapPanel.getHeight();
+        
+        // Draw the background
+        g2d.setColor(new Color(10, 10, 20));
+        g2d.fillRect(0, 0, panelWidth, panelHeight);
+        
+        // Calculate scaling to fit the entire labyrinth
+        int labWidth = labyrinth.getWidth();
+        int labHeight = labyrinth.getHeight();
+        
+        int cellWidth = Math.max(1, panelWidth / (labWidth + 2));
+        int cellHeight = Math.max(1, panelHeight / (labHeight + 2));
+        int cellSize = Math.min(cellWidth, cellHeight);
+        
+        // Center the minimap in the panel
+        int offsetX = (panelWidth - (labWidth * cellSize)) / 2;
+        int offsetY = (panelHeight - (labHeight * cellSize)) / 2;
+        
+        // Draw subtle grid
+        g2d.setColor(new Color(30, 30, 40));
+        for (int x = 0; x <= labWidth; x++) {
+            g2d.drawLine(
+                offsetX + x * cellSize, 
+                offsetY, 
+                offsetX + x * cellSize, 
+                offsetY + labHeight * cellSize
+            );
+        }
+        
+        for (int y = 0; y <= labHeight; y++) {
+            g2d.drawLine(
+                offsetX, 
+                offsetY + y * cellSize, 
+                offsetX + labWidth * cellSize, 
+                offsetY + y * cellSize
+            );
+        }
+        
+        // Draw border around the minimap
+        g2d.setColor(new Color(70, 70, 90));
+        g2d.drawRect(
+            offsetX - 1, 
+            offsetY - 1, 
+            labWidth * cellSize + 1, 
+            labHeight * cellSize + 1
+        );
+        
+        // Draw all the rooms in the labyrinth
+        for (int y = 0; y < labHeight; y++) {
+            for (int x = 0; x < labWidth; x++) {
+                Position pos = new Position(x, y);
+                Room room = labyrinth.getRoomAt(pos);
+                
+                int drawX = offsetX + x * cellSize;
+                int drawY = offsetY + y * cellSize;
+                
+                if (room == null) {
+                    // Draw wall (black)
+                    g2d.setColor(new Color(20, 20, 30));
+                    g2d.fillRect(drawX, drawY, cellSize, cellSize);
+                } else if (room.isVisited()) {
+                    // Draw explored room with its type color
+                    Color roomColor;
+                    
+                    switch (room.getType()) {
+                        case REGULAR:
+                            roomColor = new Color(200, 200, 220);
+                            break;
+                        case PUZZLE:
+                            roomColor = new Color(100, 150, 255);
+                            break;
+                        case TREASURE:
+                            roomColor = new Color(255, 215, 0);
+                            break;
+                        case MONSTER:
+                            roomColor = new Color(255, 80, 80);
+                            break;
+                        case TRAP:
+                            roomColor = new Color(255, 150, 0);
+                            break;
+                        case EXIT:
+                            roomColor = new Color(100, 255, 100);
+                            break;
+                        default:
+                            roomColor = Color.GRAY;
+                            break;
+                    }
+                    
+                    g2d.setColor(roomColor);
+                    g2d.fillRect(drawX, drawY, cellSize, cellSize);
+                    
+                    // Draw border
+                    g2d.setColor(roomColor.darker());
+                    g2d.drawRect(drawX, drawY, cellSize - 1, cellSize - 1);
+                } else {
+                    // Draw unexplored but known room (gray)
+                    g2d.setColor(new Color(100, 100, 120));
+                    g2d.fillRect(drawX, drawY, cellSize, cellSize);
+                }
+            }
+        }
+        
+        // Draw the viewport rectangle (visible area in the main map)
+        int cellSizeMain = 30; // Same as in drawMap method
+        int mapWidth = mapPanel.getWidth() / cellSizeMain;
+        int mapHeight = mapPanel.getHeight() / cellSizeMain;
+        
+        int startX = Math.max(0, playerPos.getX() - mapWidth / 2);
+        int startY = Math.max(0, playerPos.getY() - mapHeight / 2);
+        int endX = Math.min(labyrinth.getWidth() - 1, startX + mapWidth - 1);
+        int endY = Math.min(labyrinth.getHeight() - 1, startY + mapHeight - 1);
+        
+        // Adjust for partial view
+        if (endX - startX + 1 < mapWidth) {
+            startX = Math.max(0, endX - mapWidth + 1);
+        }
+        if (endY - startY + 1 < mapHeight) {
+            startY = Math.max(0, endY - mapHeight + 1);
+        }
+        
+        // Draw viewport rectangle
+        g2d.setColor(new Color(255, 255, 255, 70));
+        g2d.drawRect(
+            offsetX + startX * cellSize,
+            offsetY + startY * cellSize,
+            (endX - startX + 1) * cellSize,
+            (endY - startY + 1) * cellSize
+        );
+        
+        // Draw player position on minimap
+        int playerDrawX = offsetX + playerPos.getX() * cellSize;
+        int playerDrawY = offsetY + playerPos.getY() * cellSize;
+        
+        // Draw player marker (pulsing circle)
+        double pulseSize = 0.8 + Math.sin(System.currentTimeMillis() / 200.0) * 0.2;
+        int markerSize = (int)(cellSize * pulseSize);
+        int markerX = playerDrawX + (cellSize - markerSize) / 2;
+        int markerY = playerDrawY + (cellSize - markerSize) / 2;
+        
+        // Draw outer glow
+        g2d.setColor(new Color(50, 200, 255, 150));
+        g2d.fillOval(markerX - 1, markerY - 1, markerSize + 2, markerSize + 2);
+        
+        // Draw player marker
+        g2d.setColor(new Color(0, 100, 255));
+        g2d.fillOval(markerX, markerY, markerSize, markerSize);
+        
+        // Draw highlight
+        g2d.setColor(new Color(150, 220, 255));
+        g2d.fillOval(markerX + markerSize/4, markerY + markerSize/4, markerSize/4, markerSize/4);
     }
     
     /**
@@ -585,5 +1074,33 @@ public class SwingView implements GameView {
         item.add(textLabel, BorderLayout.CENTER);
         
         panel.add(item);
+    }
+    
+    /**
+     * Creates a compact legend item for the minimap
+     * 
+     * @param color The color to display
+     * @param label The text label for the color
+     * @return A panel containing the legend item
+     */
+    private JPanel createCompactLegendItem(Color color, String label) {
+        JPanel item = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        item.setBackground(new Color(30, 30, 45));
+        
+        // Color square
+        JPanel colorBox = new JPanel();
+        colorBox.setBackground(color);
+        colorBox.setPreferredSize(new Dimension(8, 8));
+        colorBox.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY, 1));
+        
+        // Text label
+        JLabel textLabel = new JLabel(label);
+        textLabel.setForeground(new Color(180, 180, 220));
+        textLabel.setFont(new Font("Dialog", Font.PLAIN, 9));
+        
+        item.add(colorBox);
+        item.add(textLabel);
+        
+        return item;
     }
 }
