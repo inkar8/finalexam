@@ -82,6 +82,15 @@ public class GameController {
                     view.displayMessage("Congratulations! You have escaped the magical labyrinth!");
                     gameRunning = false;
                 }
+            } else if (command.startsWith("solve ")) {
+                String answer = command.substring(6).trim();
+
+                if (player.solveTrap(answer)) {
+                    view.displayMessage("Correct! You solved the puzzle and escaped the trap.");
+                } else {
+                    view.displayMessage("Incorrect. Try again.");
+                }
+
             }
         }
         
@@ -96,11 +105,13 @@ public class GameController {
      * @param command The command to process
      */
     private void processCommand(String command) {
+
         if (command == null || command.isEmpty()) {
             view.displayMessage("Please enter a command.");
             return;
         }
-        
+
+
         command = command.toLowerCase().trim();
         
         if (command.equals("help") || command.equals("?")) {
@@ -130,6 +141,17 @@ public class GameController {
             String confirm = view.getPlayerInput("").toLowerCase();
             if (confirm.startsWith("y")) {
                 gameRunning = false;
+            } else if (command.startsWith("solve ")) {
+                String answer = command.substring(6).trim().toLowerCase();
+
+                // Условно правильный ответ (можешь сделать динамическим)
+                if (answer.equals("shadow")) {
+                    player.setTrapped(false);
+                    view.displayMessage("Correct! You solved the puzzle and escaped the trap.");
+                } else {
+                    view.displayMessage("Incorrect. Try again.");
+                }
+
             }
         } else {
             // Pass other commands to the current room for interaction
@@ -188,6 +210,17 @@ public class GameController {
      * @param command The movement command
      */
     private void movePlayer(String command) {
+        if (player.isTrapped()) {
+            view.displayMessage("You are trapped and cannot move until you solve the puzzle!");
+            return;
+        }
+
+        if (!player.hasMovesLeft()) {
+            view.displayMessage("You have no more moves left!");
+            gameRunning = false;
+            return;
+        }
+
         Direction direction = null;
         
         if (command.equals("north") || command.equals("n") || command.equals("move north")) {
@@ -221,6 +254,9 @@ public class GameController {
                 // Get and display information about the new room
                 Room newRoom = labyrinth.getRoomAt(newPosition);
                 view.displayMessage(newRoom.onEnter(player));
+                player.decrementMoves();
+                view.displayMessage("Remaining moves: " + player.getRemainingMoves());
+
             } else {
                 view.displayMessage("You can't go that way. There's a wall or the edge of the labyrinth.");
             }

@@ -22,7 +22,13 @@ public class Player implements PuzzleObserver {
     private Position position;
     private List<Artifact> inventory;
     private CombatStrategy combatStrategy;
-    
+    private int remainingMoves = 30;
+    private boolean isTrapped = false;
+    private String trapRiddle;
+    private String trapAnswer;
+
+
+
     /**
      * Creates a new player.
      * 
@@ -32,6 +38,7 @@ public class Player implements PuzzleObserver {
      * @param defense   Base defense value
      */
     public Player(String name, int health, int attack, int defense) {
+
         this.name = name;
         this.maxHealth = health;
         this.health = health;
@@ -43,7 +50,47 @@ public class Player implements PuzzleObserver {
         this.inventory = new ArrayList<>();
         this.combatStrategy = new AggressiveStrategy(); // Default strategy
     }
-    
+    public void setTrapPuzzle(String riddle, String answer) {
+        this.trapRiddle = riddle;
+        this.trapAnswer = answer;
+    }
+
+    public String getTrapRiddle() {
+        return trapRiddle;
+    }
+
+    public boolean solveTrap(String answer) {
+        if (trapAnswer != null && trapAnswer.equalsIgnoreCase(answer.trim())) {
+            isTrapped = false;
+            trapRiddle = null;
+            trapAnswer = null;
+            return true;
+        }
+        return false;
+    }
+
+    public int getRemainingMoves() {
+        return remainingMoves;
+    }
+
+    public void decrementMoves() {
+        if (remainingMoves > 0) {
+            remainingMoves--;
+        }
+    }
+
+    public boolean hasMovesLeft() {
+        return remainingMoves > 0;
+    }
+
+    public boolean isTrapped() {
+        return isTrapped;
+    }
+
+    public void setTrapped(boolean trapped) {
+        this.isTrapped = trapped;
+    }
+
     /**
      * Moves the player in the given direction.
      * 

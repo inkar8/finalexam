@@ -76,17 +76,32 @@ public class TrapRoom extends Room {
             } else {
                 result.append("You've triggered the visible trap! ");
             }
-            
-            // Apply trap damage
+
+            // ВСЕГДА срабатывает
+            player.setTrapped(true);
+
+            String[][] riddles = {
+                    {"What gets wetter as it dries?", "towel"},
+                    {"I’m tall when I’m young and short when I’m old. What am I?", "candle"},
+                    {"What has hands but can’t clap?", "clock"},
+                    {"The more you take, the more you leave behind. What am I?", "footsteps"},
+                    {"What has to be broken before you can use it?", "egg"}
+            };
+            Random r = new Random();
+            int index = r.nextInt(riddles.length);
+            player.setTrapPuzzle(riddles[index][0], riddles[index][1]);
+            result.append("\nYou are trapped! Solve the puzzle: ").append(player.getTrapRiddle());
+
             boolean playerAlive = player.takeDamage(trap.getDamage());
-            result.append("The ").append(trap.getName())
-                  .append(" deals ").append(trap.getDamage())
-                  .append(" damage to you!");
-            
+            result.append("\nThe ").append(trap.getName())
+                    .append(" deals ").append(trap.getDamage())
+                    .append(" damage to you!");
+
             if (!playerAlive) {
                 result.append("\nYou have been killed by the trap!");
             }
         }
+
         
         return result.toString();
     }
